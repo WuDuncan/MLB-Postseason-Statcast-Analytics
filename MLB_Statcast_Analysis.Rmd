@@ -1,0 +1,103 @@
+---
+title: "2025 MLB Postseason Statcast Analysis"
+author: "Tung-Tsan WU"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+# Basic setup: hide warning and message outputs in the final HTML report
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## 1. Data Import & Cleaning
+
+First, we load the necessary packages and the MLB Statcast dataset, followed by data formatting and cleaning to prepare for analysis.
+
+```{r data-prep}
+library(tidyverse)
+library(lubridate)
+library(psych)
+library(knitr)
+
+# Load data
+df_mlb <- read_csv("Data_MLB_2025_StatcastPostseason_PitchByPitch_20251102a.csv",
+                   show_col_types = FALSE)
+
+# Data cleaning
+clean_df <- df_mlb %>%
+  select(
+    -spin_dir, -spin_rate_deprecated, -break_angle_deprecated,
+    -break_length_deprecated, -tfs_deprecated, -tfs_zulu_deprecated,
+    -umpire, -sv_id
+  ) %>%
+  select(-matches("fielder_2\\.\\d+")) %>%
+  mutate(
+    game_date = ymd(game_date),
+    across(c(pitch_type, pitch_name, description, events,
+             if_fielding_alignment, of_fielding_alignment,
+             zone, p_throws, stand, inning_topbot, type, bb_type), 
+           as.factor)
+  ) %>%
+  mutate(
+    on_1b = ifelse(is.na(on_1b), 0, 1),
+    on_2b = ifelse(is.na(on_2b), 0, 1),
+    on_3b = ifelse(is.na(on_3b), 0, 1),
+    events = fct_explicit_na(events, "no_event"),
+    bb_type = fct_explicit_na(bb_type, "no_hit")
+  )
+
+# Create hitting and pitching subsets
+batted_ball_df <- clean_df %>%
+  filter(type == "X" & bb_type != "no_hit" & bb_type != "bunt")
+
+top_pitches_list <- names(sort(table(clean_df$pitch_name), decreasing=TRUE)[1:8])
+df_top_pitches <- clean_df %>%
+  filter(pitch_name %in% top_pitches_list & pitch_name != "")
+```
+
+---
+
+## 2. Visualizations
+
+### 2.1 The Sweet Spot
+Analyzing the relationship between Launch Angle and Launch Speed (Exit Velocity) to identify optimal contact profiles.
+
+```{r sweet-spot}
+s1_sweet_spot <- ggplot(batted_ball_df, aes(x = launch_angle, y = launch_speed)) +
+  geom_point(alpha = 0.3, color = "blue", size = 1) + 
+  geom_hline(yintercept = 95, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = 8, color = "darkgreen", linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = 32, color = "darkgreen", linetype = "dashed", linewidth = 1) +
+  labs(
+    title = "Figure: Launch Speed vs. Launch Angle",
+    x = "Launch Angle (Degrees)",
+    y = "Launch Speed (mph)",
+    caption = "Red line = 95mph 'Hard Hit', Green lines = 8-32° 'Sweet Spot'"
+  ) +
+  theme_minimal()
+s1_sweet_spot
+```
+
+### 2.2 Pitch Speed by Type
+Comparing the pitch speed distributions of the top 8 most frequently used pitch types in the postseason.
+
+```{r pitch-speed}
+b1_pitch_speed <- ggplot(df_top_pitches, aes(x = pitch_name, y = release_speed)) +
+  geom_boxplot(fill = "lightblue", outlier.color = "red", outlier.size = 1.5) +
+  labs(
+    title = "Figure: Boxplot of Release Speed by Pitch Type",
+    x = "Pitch Type",
+    y = "Release Speed (mph)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+b1_pitch_speed
+```
+
+---
+
+## 3. Statistical Tests
